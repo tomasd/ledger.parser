@@ -1,0 +1,84 @@
+journal = journal-item*
+
+<journal-item> =
+     <WS* EOL>
+    | comment
+    | auto-tx
+    | apply-tag
+    | tx
+
+comment = <WS* ';'> #"[^\n]+" <EOL>
+
+auto-tx =
+    <'='> WS* #"[^\n]+" <EOL>
+    tx-line*
+
+tx =
+    tx-first-line
+    tx-line*
+
+<tx-first-line> = tx-date <WS*> (<'='> <WS*> tx-effective-date)? <WS*> tx-flag? <WS*> tx-code? <WS*> tx-desc <WS*> (<';' WS*> tx-comment)? <EOL>
+tx-date = date
+tx-effective-date = date
+tx-flag = '!' | '*'
+tx-code = '(' #'[^)]+' ')'
+tx-desc = !tx-flag #"[^\n;]+"
+tx-comment = #"\S[^\n]*"
+<tx-line> =
+     <WS+> posting <EOL>
+     | <WS+ ';' WS*> tx-comment <EOL>
+     | <WS+ ';' WS*> tag-expr <EOL>
+
+posting =
+     account [<WS WS+> quantity <WS*> (<';'> <WS*> posting-note)?]
+
+<posting-note> =
+    posting-dates | posting-comment
+posting-comment =
+    !posting-dates #"[^\n]+"
+<posting-dates> =
+    <'[' WS*> tx-date <WS* ']'>
+    | <WS* '[' WS* '=' WS*> tx-effective-date <']'>
+    | <WS* '[' WS*> tx-date <WS* '=' WS*> tx-effective-date <']'>
+
+account =
+    bal-virt-account | virt-account | real-account
+
+<account-ref> = #"[\p{Alpha}\p{Digit}]+ ?[\p{Alpha}\p{Digit}]*" (<':'> account-ref)*
+virt-account = <'('> account-ref <')'>
+bal-virt-account = <'['> account-ref <']'>
+real-account = account-ref
+
+quantity =  amount (lot-expr)? <WS* '@' WS*> amount-cost | amount (lot-expr)? <WS* '@@' WS*> amount-total-cost | amount (lot-expr)?
+amount-cost = amount
+amount-total-cost = amount
+amount = amount-expression | commodity number | number commodity | number
+amount-expression = <'('> #'[^)]+' <')'>
+<lot-expr> = lot | total-lot
+lot = <'{'> #'[^}]+' <'}'>
+total-lot = <'{{'> #'[^}]+' <'}}'>
+
+
+commodity = <WS*> #"[^\d\.,/@\s+\-\(\)]+" <WS*>
+number = #'[+-]?[1-9]?[,0-9]+(\.\d*)?'
+date-sep = '/' | '.' | '-'
+date = #'\d{4}' <date-sep> #'\d{2}' <date-sep> #'\d{2}'
+<WS> = ' ' | '\t'
+EOL = WS* '\n'
+
+apply-tag =
+    <'apply' WS+ 'tag' WS+> tag-line-expr <EOL>
+    journal
+    <'end' WS+ 'tag'>
+<tag-line-expr> =
+    tag-expr
+tag = <WS*> #'[^:\n]+' <WS*>
+tag-pair = tag <':'> tag-value
+tag-typed-pair = tag <'::'> tag-value
+tag-value = <WS*> #'\S[^\n]*' <WS*>
+
+<tag-expr> =
+    <':'> multiple-tags | !':' tag-pair | !':' tag-typed-pair
+
+<multiple-tags> =
+     (tag <':'>)+

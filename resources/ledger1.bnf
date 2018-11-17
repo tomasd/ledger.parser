@@ -1,0 +1,160 @@
+(* ledger grammar file *)
+(* vim: set ft=ebnf : *)
+
+<LedgerEntries> = (
+      CommentHeader
+    | CommentBlock
+    | IncludeFile
+    | AccountDefinition
+    | CommodityDefinition
+    | CommodityConversion
+    | CommodityPrice
+    | Transaction
+    | AutoTransaction
+    | ApplyTag
+    | NL
+    | Epsilon
+)+;
+
+
+(* Text *)
+<NL> = <'\n'> ;
+<Indent> = (<' '> | <'\t'>)+;
+<Text> = #"\s*\S?[^\n]*\S[^\n]*" ;
+
+(* Dates *)
+year = #"\d{4}"
+month = #"\d{2}"
+day = #"\d{2}"
+<date-sep> = '-' | '.' | '/'
+Date = year <date-sep> month <date-sep> day;
+Time = ( #"\d\d:\d\d" | #"\d\d:\d\d:\d\d" ) , [ <[' ']> , TimeZone ] ;
+TimeZone = 'Z' | #"-?\d\d:\d\d" | #"[A-Z][a-zA-Z]+(/[a-zA-Z0-9_-]+)*" ;
+DateTime = Date , <( 'T' | ' ' )> , Time ;
+
+(* Numbers *)
+<NonZeroDigit> = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
+<Digit>        = '0' | NonZeroDigit ;
+(*Number         = ['-'] , ( Digit | ( NonZeroDigit , ( Digit | <','> )+ ) ) , [ '.' , Digit+ ] ;*)
+Number = #'[+-]?[1-9]?[,0-9]+(\.\d*)?'
+Percentage     = Number , <'%'> ;
+
+(* Comments & Includes *)
+CommentHeader = <';;;;;'> , #"[^;]*" , <';;;;;\n'> ;
+CommentBlock = ( <EWS>? <';'> , Text , NL? | <';'> , '\n' )+ , !CommentBlock ;
+IncludeFile = <'include '> , #"\S+" , NL ;
+
+(* Standard Metadata *)
+TagName = #"[a-zA-Z0-9-]+" ;
+MetaTag = <':'> , TagName , <':'> | TagName , <': '> , Text ;
+MetaDirective = <'note '> , MetaTag ;
+NoteDirective = <'note '> , !MetaTag , Text ;
+
+(* Commodity Definitions *)
+CommodityCode = '$' | #"[a-zA-Z][a-zA-Z_]*" | <'"'> , #"[a-zA-Z][a-zA-Z0-9_]*" , <'"'> ;
+CommodityDefinition = <'commodity '> , CommodityCode , NL , CommodityDirective* ;
+<CommodityDirective> = Indent , ( CommodityFormat | CommodityOption | MetaDirective | NoteDirective ) , NL ;
+CommodityFormat = <'format '> , Text ;
+CommodityOption = 'nomarket' | 'default' ;
+
+(* Quantities, Conversions, and Prices *)
+Quantity = '0' | ( CommodityCode , <[' '+]> , Number ) | ( Number , <[' '+]> , CommodityCode ) | Number;
+CommodityConversion = <'C '> , Quantity , <' = '> , Quantity , NL ;
+CommodityPrice = <'P '> , ( Date | DateTime ) , <' '+> , CommodityCode , <' '+> , Quantity , NL ;
+
+(* Account References *)
+<AccountPathWord> = #"[a-zA-Z0-9&][a-zA-Z0-9-.]*" ;
+AccountPathSegment = AccountPathWord , ( ' ' , AccountPathWord )* ;
+AccountPath = #"[A-Z][a-zA-Z]+" , ( <':'> , AccountPathSegment )* ;
+AccountAlias = #"[a-z][a-zA-Z0-9-]*[a-z0-9]" ;
+<AccountRef> = AccountPath | AccountAlias ;
+RealAccountRef = AccountRef ;
+VirtualAccountRef = <'('> , AccountRef , <')'> ;
+BalancedVirtualAccountRef = <'['> , AccountRef , <']'> ;
+
+(* Account Definitions *)
+AccountDefinition = <'account '> , AccountPath , NL , AccountDirective* ;
+<AccountDirective> = Indent , ( AccountAliasDirective | AccountAssertion | MetaDirective | NoteDirective ) , NL ;
+AccountAliasDirective = <'alias '> , AccountAlias ;
+AccountAssertion = <'assert '> , Text ;
+
+(* History Metadata *)
+TimeMetaTag = 'time: ' ;
+TimeMeta = <TimeMetaTag> , ( Time | DateTime ) ;
+
+SourceMetaTag = 'source: ' ;
+SourceMeta = <SourceMetaTag> , TagName , <'|'> , Text ;
+
+LineItemTag = 'item: ' ;
+
+SpecialMetaTag = TimeMetaTag | SourceMetaTag | LineItemTag ;
+MetaEntry = !SpecialMetaTag , MetaTag ;
+MetaComment = !( SpecialMetaTag | MetaTag ) , Text ;
+
+TransactionDates =
+    TransactionDate (<'='> EffectiveDate)?
+TransactionDate = Date
+EffectiveDate = Date
+
+(* Transactions *)
+Transaction = TransactionDates ,
+              [ <' '> , TxFlag ] ,
+              [ <' '> , TxCode ] ,
+              <' '> , !TxFlag , !TxCode , TxMemo , NL ,
+              TxDetail* ,
+              Posting+ ;
+
+AutoTransaction =
+    <'='> Text NL,
+    TxDetail* ,
+    Posting+
+
+TxFlag = '!' | '*' ;
+TxCode = <'('> , #"[^)]+" , <')'> ;
+TxMemo = Text ;
+<TxDetail> = Indent , <'; '> , ( TimeMeta | MetaEntry | MetaComment ) , NL ;
+
+(* Postings *)
+Posting = Indent ,
+          PostingAccount ,
+          [ <'  '> ,
+            [ <' '*> , Quantity ,
+              [ <' '+> , PostingLotCost ,
+                [ <' '+> , PostingLotDate ] ] ,
+              [ <' '+> , PostingPrice ] ] ,
+            [ <' '*> , PostingBalance ] ,
+            [ <' '*> , <';'> , ( MetaEntry | MetaComment ) ] ] ,
+          [NL , PostingDetail*] ;
+
+<PostingAccount> = RealAccountRef | VirtualAccountRef | BalancedVirtualAccountRef ;
+PostingLotCost = <'{'> , Quantity , <'}'> ;
+PostingLotDate = <'['> , Date , <']'> ;
+PostingPrice = <'@'> , <' '+> , Quantity ;
+PostingBalance = <'='> , <' '+> , Quantity ;
+PostingDate = <'['> , <['=']> , Date , <']'> ;
+<PostingDetail> = Indent , Indent , <'; '> , ( TimeMeta | SourceMeta | PostingDate | LineItem | MetaEntry | !PostingDate , MetaComment ) , NL ;
+PostingComment = !PostingDate , Text ;
+
+(* Line Items *)
+LineItem = <LineItemTag> ,
+           #"\S+( \S+)*" ,
+           [ <' '+> , LineItemTotal ,
+             [ <' '+> , LineItemDetail ] ,
+             [ <' '+> ,  ( LineItemTaxGroups | LineItemTaxApplied ) ] ] ;
+
+LineItemTotal = Quantity ;
+<LineItemDetail> = <'('> , <' '*> , LineItemAmount , <' '+> , <'@'> , <' '+> , LineItemPrice , <')'> ;
+LineItemAmount = Number | Quantity ;
+LineItemPrice = Quantity | Percentage ;
+LineItemTaxGroup = #"\*+" ;
+LineItemTaxGroups = LineItemTaxGroup , ( <' '> , LineItemTaxGroup )* ;
+LineItemTaxApplied = <'<'> , LineItemTaxGroup , <'>'> ;
+
+<WS> = ' '
+<EWS> = WS+
+
+TagValue = TagName , <':'> Text | TagName
+ApplyTag =
+  <'apply' EWS 'tag' EWS> TagValue NL
+  LedgerEntries*
+  <'end' EWS 'tag'>

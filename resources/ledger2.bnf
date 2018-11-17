@@ -1,0 +1,89 @@
+journal = journal-item+
+
+<journal-item> =
+    comment-block !comment-line
+    | auto-tx
+    | tx
+    | directive
+    | <EOL>
+
+comment-block =
+    comment-line+
+
+<comment-line> =
+    <';' WS*> comment <EOL>
+comment = #'\S[^\n]*'
+
+auto-tx =
+    <'=' WS*> tx-desc? tx-note? <EOL>
+    tx-comment*
+    tx-posting+
+
+tx =
+    tx-date (<'='> tx-effective-date)? [<WS+> tx-flag]  [<WS*> tx-code] <WS*> tx-desc [<WS*> tx-note] <EOL>
+    tx-comment*
+    tx-posting+
+tx-date = date
+tx-effective-date = date
+tx-flag =  '!' | '*'
+tx-code = <'('> #'[^)]+' <')'>
+tx-desc = #'[^\s!*;(=][^\n;]*'
+<tx-note> = <';' WS*> comment
+
+<tx-comment> =
+    <indent ';'> <WS*> comment <EOL>
+    | <indent ';'> <WS*> tag-comment <EOL>
+tx-posting =
+    (<indent> tx-account <WS WS+> quantity tx-note? <EOL>
+    | <indent> tx-account <EOL>)
+    tx-comment*
+
+tx-account =
+    bal-virt-account | virt-account | real-account
+
+<account-ref> = #"[\p{Alpha}\p{Digit}]+ ?[\p{Alpha}\p{Digit}]*" (<':'> account-ref)*
+virt-account = <'('> account-ref <')'>
+bal-virt-account = <'['> account-ref <']'>
+real-account = account-ref
+
+<directive> =
+    apply-tag
+
+apply-tag =
+    <'apply' WS+ 'tag' WS+> apply-tag-tag <EOL>
+    journal
+    <'end' WS+ 'tag' WS*> <EOL>
+<apply-tag-tag> =
+    !tag-pair tag-name | tag-pair
+
+<tag-comment>:
+    tags | !tag-pair tag-name | tag-pair
+tags:
+    <':'> (tag-name <':'>)+
+
+<tag> = #'[^:\s][^:\n]+'
+tag-name = tag
+tag-value = tag
+tag-typed-value = tag
+tag-pair =
+    tag-name <WS* ':' WS*> tag-value
+    |tag-name <WS* '::' WS*> tag-typed-value
+
+WS = <' ' | '\t'>
+<indent> = WS WS*
+EOL = '\n' | Epsilon
+
+quantity =  amount (lot-expr)? <WS* '@' WS*> amount-cost | amount (lot-expr)? <WS* '@@' WS*> amount-total-cost | amount (lot-expr)?
+amount-cost = amount
+amount-total-cost = amount
+amount = amount-expression | commodity number | number commodity | number
+amount-expression = <'('> #'[^)]+' <')'>
+<lot-expr> = lot | total-lot
+lot = <'{'> #'[^}]+' <'}'>
+total-lot = <'{{'> #'[^}]+' <'}}'>
+
+
+commodity = <WS*> #"[^\d\.,/@\s+\-\(\)]+" <WS*>
+number = #'[+-]?[1-9]?[,0-9]+(\.\d*)?'
+date-sep = '/' | '.' | '-'
+date = #'\d{4}' <date-sep> #'\d{2}' <date-sep> #'\d{2}'
